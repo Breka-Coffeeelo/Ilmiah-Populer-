@@ -113,6 +113,7 @@ const PK=[{"ty":"m","x":1,"l":"T","q":"Pilih SEMUA pernyataan yang sesuai dengan
 const DUR=60,MAX=3,KEY="ulangan_artikel_ilmiah_v1";
 const SHEET_URL="https://script.google.com/macros/s/AKfycbyCo3wbhnvQ_mo6Jl_v1U_WiqQu63GoMwCrVdpq-4ezLdWwWM0aHy4nRP1rF7YhCfLN/exec"; // WAJIB: tempel URL Web App Apps Script (berakhiran /exec). Token, sandi guru, dan kunci jawaban ada di Code.gs
 const SUARA=true,SUARA_VOL=0.6;
+const WAJIB_FS=true; // true = ujian wajib layar penuh (di iPhone: lewat Layar Utama)
 const $=id=>document.getElementById(id);
 const sh=a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]]}return a};
 const Q=[...PG.map(d=>({y:"pg",x:d[0],l:d[1],t:d[2],o:d[3],a:d[4]})),...PK.map(d=>({y:d.ty,x:d.x,l:d.l,t:d.q,o:d.o,a:d.a,lab:d.lab,r:d.r}))];
@@ -123,18 +124,18 @@ const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}};
 const app=$("app");let timer,last=0,devo=false,locked=false,SW=false;
 const IS_MOBILE=/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)||matchMedia("(pointer:coarse)").matches;
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
-function login(msg){
+function login(msg){const blok=WAJIB_FS&&!canFS&&!standalone();
  app.innerHTML=`<div class="lg"><section class="hero"><span class="chip">Ulangan Harian · Bahasa Indonesia</span><h1><em>Artikel</em> <u>Ilmiah</u> Populer</h1><p>Dari hasil penelitian hingga bahasa yang mudah dipahami · ${N} soal · ${DUR} menit</p><ul class="rl"><li>Ujian berjalan dalam layar penuh.</li>${/iPhone|iPod/.test(navigator.userAgent)&&!navigator.standalone?"<li>iPhone: agar layar penuh, buka lewat Bagikan → Tambah ke Layar Utama.</li>":""}<li>Pindah tab, keluar layar penuh, salin/tempel, dan memuat ulang halaman dicatat sebagai pelanggaran.</li><li>Pelanggaran ke-${MAX} mengumpulkan ujian otomatis dan dilaporkan ke guru.</li></ul><div class="shelf"><i style="--h:60px;--w:26px;--c:#7fd6dc">n=45</i><i style="--h:100px;--w:32px;--c:#ffd23f">DATA</i><i style="--h:76px;--w:28px;--c:#ff7ea3">FAKTA</i><i style="--h:122px;--w:34px;--c:#a98bff">ILMIAH</i><i style="--h:88px;--w:30px;--c:#7fd6dc">SAINS</i><i style="--h:110px;--w:34px;--c:#ffd23f">POPULER</i><i style="--h:70px;--w:26px;--c:#ff7ea3">p&lt;0,05</i></div></section>
  <section class="fm"><h2>🔬 Masuk ujian</h2>${msg?`<div style="color:var(--er);font-weight:600;margin-bottom:8px">${msg}</div>`:""}
- <label>Nama lengkap<input id="nm" autocomplete="off"></label><label>Kelas<input id="kl" placeholder="mis. 9A" autocomplete="off"></label><label>Token ujian (dari guru)<input id="tk" autocomplete="off"></label>
- <button onclick="begin()">Mulai ujian</button> <button class="g" onclick="teacher()">Mode Guru</button></section></div>`;
+ ${blok?'<div class="c" style="margin:0 0 14px;padding:14px"><b>Layar penuh wajib</b><ol class="mu" style="margin:6px 0 0;padding-left:18px"><li>Ketuk tombol Bagikan (kotak dengan panah) di Safari.</li><li>Pilih “Tambah ke Layar Utama”.</li><li>Buka ujian dari ikon baru di layar utama.</li></ol></div>':""}<label>Nama lengkap<input id="nm" autocomplete="off"></label><label>Kelas<input id="kl" placeholder="mis. 9A" autocomplete="off"></label><label>Token ujian (dari guru)<input id="tk" autocomplete="off"></label>
+ <button onclick="begin()" ${blok?"disabled":""}>Mulai ujian</button> <button class="g" onclick="teacher()">Mode Guru</button></section></div>`;
 }
 async function begin(){
  const nm=$("nm").value.trim(),kl=$("kl").value.trim(),tk=$("tk").value.trim();
  if(!nm||!kl||!tk)return login("Nama, kelas, dan token wajib diisi.");
  if(!SHEET_URL)return login("Alamat server (SHEET_URL) belum diisi di file HTML. Hubungi guru.");
  const keluar=()=>{try{document.fullscreenElement&&document.exitFullscreen()}catch(e){}};
- audioInit();fs();
+ audioInit();await fs();if(WAJIB_FS&&canFS&&!inFS())return login("Mode layar penuh wajib. Izinkan layar penuh lalu tekan Mulai ujian lagi.");
  let j;try{j=await GET({a:"start",tk,n:nm,k:kl})}catch(e){keluar();return login("Tidak dapat terhubung ke server. Periksa internet lalu coba lagi.")}
  if(!j.ok){keluar();return login(j.err==="token"?"Token ujian salah.":j.err==="closed"?"Ujian belum dibuka atau sudah ditutup oleh guru.":j.err==="dup"?"Kamu sudah mengerjakan ujian ini. Hubungi guru jika perlu mengulang.":"Gagal memulai ujian. Periksa nama dan kelas.")}
  S={nm,kl,perm:Q.map(q=>q.y==="pg"?sh([0,1,2,3]):null),ans:{},viol:[],i:0,rt:Q[0].x||1,ro:true,start:Date.now(),done:false,id:j.id,sig:j.sig};save();
@@ -144,7 +145,10 @@ let AC=null;
 function audioInit(){if(!SUARA)return;try{if(navigator.audioSession)navigator.audioSession.type="playback";if(!AC)AC=new(window.AudioContext||window.webkitAudioContext)();if(AC.state!=="running")AC.resume().catch(()=>{})}catch(e){}}
 function bip(n){if(!SUARA)return;audioInit();if(!AC)return;try{const o=AC.createOscillator(),g=AC.createGain(),t=AC.currentTime,d=n===2?1.2:.5;o.type="square";o.frequency.value=n===2?440:880;g.gain.setValueAtTime(SUARA_VOL,t);g.gain.exponentialRampToValueAtTime(.001,t+d);o.connect(g);g.connect(AC.destination);o.start(t);o.stop(t+d)}catch(e){}}
 ["touchstart","pointerdown","click"].forEach(e=>document.addEventListener(e,()=>{if(AC&&AC.state!=="running")audioInit()},{passive:true}));
-function fs(){try{const e=document.documentElement;e.requestFullscreen&&e.requestFullscreen()}catch(e){}}
+const FSE=document.documentElement,canFS=!!(FSE.requestFullscreen||FSE.webkitRequestFullscreen);
+const inFS=()=>!!(document.fullscreenElement||document.webkitFullscreenElement);
+const standalone=()=>!!(navigator.standalone||matchMedia("(display-mode: standalone)").matches||matchMedia("(display-mode: fullscreen)").matches);
+async function fs(){try{const f=FSE.requestFullscreen||FSE.webkitRequestFullscreen;if(f&&!inFS())await f.call(FSE)}catch(e){}}
 function run(){setTimeout(hb,500);
  app.innerHTML=`<div class="top"><b id="who"></b><span id="tm"></span><span id="vc"></span></div><div class="w"><div class="c" id="rd"></div><div class="c" id="qa"></div><div class="c"><div class="mu" style="margin-bottom:8px">Navigasi soal (hijau = terjawab, bingkai emas = soal sekarang)</div><div class="nav" id="nv"></div><div class="row"><span></span><button class="d" onclick="ask()">Kumpulkan Ujian</button></div></div><div class="bb" id="bb"></div></div>`;
  $("who").textContent=S.nm+" · "+S.kl;draw();tick();clearInterval(timer);timer=setInterval(tick,1000);
@@ -187,7 +191,7 @@ function v(msg,soft){
 }
 document.addEventListener("visibilitychange",()=>{if(document.hidden)v("Berpindah tab / aplikasi")});
 addEventListener("blur",()=>setTimeout(()=>{if(S&&Date.now()-S.start>3000&&!document.hasFocus()&&!document.hidden)v("Jendela ujian kehilangan fokus",IS_MOBILE)},150));
-document.addEventListener("fullscreenchange",()=>{if(S&&!S.done&&S.start&&!document.fullscreenElement&&document.documentElement.requestFullscreen)v("Keluar dari layar penuh")});
+["fullscreenchange","webkitfullscreenchange"].forEach(e=>document.addEventListener(e,()=>{if(S&&!S.done&&S.start&&canFS&&!inFS())v("Keluar dari layar penuh")}));
 ["copy","cut","paste","dragstart"].forEach(e=>document.addEventListener(e,x=>{if(S&&!S.done){x.preventDefault();v("Mencoba "+(e==="paste"?"menempel":"menyalin")+" teks")}}));
 document.addEventListener("contextmenu",x=>{if(S&&!S.done){x.preventDefault();v("Klik kanan",1)}});
 document.addEventListener("keydown",e=>{
